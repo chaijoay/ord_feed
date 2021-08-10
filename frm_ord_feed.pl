@@ -68,7 +68,7 @@ my $gszIniDbName = '';
 
 my $gcIniEnableRej = 'N';
 
-my $gszInpPrefix = 'Ord_evt_';          # in format of Ord_evt_yyyymmddhhmmss.dat
+my $gszInpPrefix = 'sff_orderevt_';          # in format of Ord_evt_yyyymmddhhmmss.dat
 
 my $gszOutPrefix = 'ORDER_';            # in format of ORDER_Ord_evt_yyyymmddhhmmss.dat.DAT
 my $gszHistPrefix = 'for_multidealer_'; # in format of for_multidealer_yyyymmdd.dat (layout <CA_NO>|<DEALER_CODE>)
@@ -239,10 +239,10 @@ sub parseINI {
         printf STDERR ("ERROR: Cannot access dir: %s - $!\n", $gszEnvOraHomeDir);
         return -1;
     }
-    if ( ! -d $gszEnvLdLibDir ) {
-        printf STDERR ("ERROR: Cannot access dir: %s - $!\n", $gszEnvLdLibDir);
-        return -1;
-    }
+    #if ( ! -d $gszEnvLdLibDir ) {
+    #    printf STDERR ("ERROR: Cannot access dir: %s - $!\n", $gszEnvLdLibDir);
+    #    return -1;
+    #}
 
     return 0;
 }
@@ -346,13 +346,15 @@ sub writeLog {
 
 sub writeLogExit {
 
-    if ( @_ ) {
-        my ($szMessage) = @_;
-        writeLog($TXT_SEVER_INF, "===== ${gszProcessName} ${szMessage} caused stop =====");
+    my ($szMessage) = @_;
+
+    if ( $szMessage eq '' ) {
+        $szMessage = "Successfully stop";
     }
     else {
-        writeLog($TXT_SEVER_INF, "===== ${gszProcessName} Successfully stop =====");
+        $szMessage = "'${szMessage}' caused stop";
     }
+    writeLog($TXT_SEVER_INF, "===== ${gszProcessName} ${szMessage} =====");
     exit;
 
 }
@@ -586,19 +588,20 @@ sub buildSnapFile {
     writeLog($TXT_SEVER_INF, 'Build new input Snap file ...');
 
     ###
-    ### input file format is: 'Ord_evt_YYYYMMDDHHMMSS.dat'
+    ### input file format is changed from: 'Ord_evt_YYYYMMDDHHMMSS.dat'
+    #                                  to: 'sff_orderevt_NNNN_YYYYMMDDHHMMSS_NNN.dat'
     ###
-    my $regexSyncFileName = qr/^$gszInpPrefix.*(\d{8})_(\d{6}).*$gszSuffix$/i;
+    my $regexSyncFileName = qr/^$gszInpPrefix.*(\d{4})_(\d{14})_(\d{3}).*$gszSuffix$/i;
 
     $gszInputSnapFile = "${gszRunDir}/${gszProcessName}.snap";
     if ( !opendir($READ_DIR, $gszIniInpDir) ){
         writeLog($TXT_SEVER_ERR, "Cannot read directory ${gszIniInpDir}: $!");
-        writeLogExit();
+        writeLogExit("");
     }
 
     if ( !open($RW_SNAP_FILE, '>', "${gszInputSnapFile}.tmp") ) {
         writeLog($TXT_SEVER_ERR, "Cannot write Snap file (${gszInputSnapFile}.tmp): $!");
-        writeLogExit();
+        writeLogExit("");
     }
 
     while ( my $szFileName = readdir($READ_DIR) ) {
@@ -607,11 +610,11 @@ sub buildSnapFile {
             next;
         }
 
-        ### $1 ---> YYYYMMDDHHMM
-        my $szYMDHm = $1;
+        ### $2 ---> YYYYMMDDHHMM
+        my $szYMDHm = $2;
         my $szYMD = substr($szYMDHm, 0, 8);
 
-        if ( $szYMD >= $allow_oldest_date ) {
+        if ( $szYMD ge $allow_oldest_date ) {
             if ( ! -s "${gszIniInpDir}/${szFileName}" ) {
                 writeLog($TXT_SEVER_ERR, "Cannot access data file ${szFileName}: $!");
                 rename("${gszIniInpDir}/${szFileName}", "${gszIniInpDir}/${szFileName}_ERR");
@@ -645,7 +648,7 @@ sub openWorkingFiles {
 
     if ( !open($W_DAT_OUT_FILE, '>', "${gszDatOutFile}") ) {
         writeLog($TXT_SEVER_ERR, "cannot open to write input file (${gszDatOutFile}): $!");
-        writeLogExit();
+        writeLogExit("");
     }
 
 }
@@ -820,13 +823,14 @@ sub getTopXdealer {
 
     # get top dealer using unix command by selecting dealer code field which is column 19
     my $nDealerCodeCol = 19;
+    my $nIsAISShopCol = 16;
     
     my $temp_file = "${gszIniTmpDir}/.TopXDealer.txt";
     unlink($temp_file);
-    my $szUxCmd = sprintf("gawk -F \"|\" '{ if ( \$%d != \"\" ) print \$%d }' %s/%s | sort | uniq -c | sort -k 1nr,1 > %s", $nDealerCodeCol, $nDealerCodeCol, $szInpDir, $szInpFileName, $temp_file);
+    my $szUxCmd = sprintf("gawk -F \"|\" '{ if ( \$%d != \"\" && \$%d != \"Y\" && \$%d != \"y\" ) print \$%d }' %s/%s | sort | uniq -c | sort -k 1nr,1 > %s", $nDealerCodeCol, $nIsAISShopCol, $nIsAISShopCol, $nDealerCodeCol, $szInpDir, $szInpFileName, $temp_file);
     system($szUxCmd);
     
-printf ("$szUxCmd\n");
+#printf ("$szUxCmd\n");
 
     # If backup top dealer is set, open file for writing.
     if ( $gcIniBackupTopX eq 'Y' ) {
@@ -834,7 +838,7 @@ printf ("$szUxCmd\n");
         my $szTopOutFile = sprintf("%s/%s_top%d", $gszIniBackupTopXDir, $gszInputFile, $gnIniNofTopDealer);
         if ( !open($W_TOP_DEALER, '>', "${szTopOutFile}") ) {
             writeLog($TXT_SEVER_ERR, "cannot open to write input file (${szTopOutFile}): $!");
-            writeLogExit();
+            writeLogExit("");
         }
 
     }
@@ -842,34 +846,35 @@ printf ("$szUxCmd\n");
     %$hTable = ();
     if ( open($R_TOP_DEALER, '<', "${temp_file}") ) {
     #if ( open($R_TOP_DEALER, $szUxCmd) ) {
+#printf ("DBG-1\n");
         while ( my $line = <$R_TOP_DEALER> ) {
-
+#printf ("DBG-2\n");
             chomp($line);
             $nCurRec++;
-
+#printf ("DBG-3 read line '$line'\n");
             # $aDealer[0] is counts
             # $aDealer[1] is dealer code
             my @aDealer = split(' ', $line, -1);
-
+#printf ("DBG-4 read line" . @aDealer . "\n");
             # dealer count msut greater than MinCountTopDealer
             if ( $aDealer[0] < $gnIniMinCountTopDealer ) {
                 next;
             }
-
+#printf ("DBG-5\n");
             # when the next dealer count still have same value as the last dealer, continue to include in a top dealer list
             if ( $nCurRec >= $gnIniNofTopDealer && $nPrevCnt > $aDealer[0] ) {
                 last;
             }
-
+#printf ("DBG-6\n");
             $hTable->{$aDealer[1]} = $aDealer[1];
             if ( $gcIniBackupTopX eq 'Y' ) {
                 print $W_TOP_DEALER ( $aDealer[0], '|', $aDealer[1], "\n" );
             }
             $nPrevCnt = $aDealer[0];
-
+#printf ("DBG-7\n");
         }
         close($R_TOP_DEALER);
-        unlink($temp_file);
+        #unlink($temp_file);
 
         if ( $gcIniBackupTopX eq 'Y' ) {
             close($W_TOP_DEALER);
@@ -1070,7 +1075,7 @@ trapInterruptSignal();
 
 if ( ! -x $gszBadDebtApp ) {
     writeLog($TXT_SEVER_ERR, "Bad Debt App is not available '${gszBadDebtApp}': $!");
-    writeLogExit();
+    writeLogExit("");
 }
 
 # set environment for bad debt app to query data
@@ -1084,7 +1089,7 @@ buildSnapFile();
 
 if ( !open($RW_SNAP_FILE, '<', $gszInputSnapFile) ) {
     writeLog($TXT_SEVER_ERR, "Cannot open Snap file to Read '${gszInputSnapFile}': $!");
-    writeLogExit();
+    writeLogExit("");
 }
 else {
 ### <-- [ Loop of file processing ] ---------------------------------------->
@@ -1135,7 +1140,7 @@ else {
     writeLog($TXT_SEVER_INF, "No file to be processed");
 }
 
-writeLogExit();
+writeLogExit("");
 ###
 ###
 ###

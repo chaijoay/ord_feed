@@ -18,6 +18,7 @@
 ###  MODIFICATION HISTORY :
 ###      0.1     31-Jan-2017     initial version
 ###      1.0     09-Feb-2017     release version
+###      1.1     01-Oct-2020     support on FRM14 and number of input field is 31.
 ###++
 ###
 ###
@@ -36,7 +37,7 @@ use DBI;
 ###
 ### ----- [ Constant declaration ] -----
 ###
-use constant APP_VER    => '1.0 (09-Feb-2017)';
+use constant APP_VER    => '1.1 (01-Oct-2020)';
 ###
 ### ----- [ global ini default value list ] -----
 ###
@@ -134,7 +135,7 @@ my %ghParseMapINI = (
 ###
 my %ghMapMultiDealer = ();          # for_multidealer_YYYYMMDD.dat
 my %ghMapTopXdealer = ();           # Top X Dealer from current processing input file
-my %ghMapLovSubCat = ();            # LOV Sub Category 
+my %ghMapLovSubCat = ();            # LOV Sub Category
 ###
 ### ----- global for main processing loop -----
 ###
@@ -491,11 +492,11 @@ sub loadLovBy {
 
     my ($lov_type, $hTable) = @_;
     my $nCnt = 0;
-    
+
     if ( ! $goDBHandle || ! $goDBHandle->ping() ) {
         connectDB();
     }
-    
+
     %$hTable = ();
     #lov_type = FRM_ACCOUNT_SUBCAT
     my $sSql = "SELECT LOV_DESC, LOV_ID FROM FRAUD_LOV WHERE UPPER(LOV_TYPE) = '${lov_type}'";
@@ -517,7 +518,7 @@ sub loadLovBy {
 
     if ( defined $goDBHandle->errstr ) {
         writeLog($TXT_SEVER_ERR, $goDBHandle->errstr);
-    }    
+    }
 
     disconnectDB();
     writeLog($TXT_SEVER_INF, "read fraud_lov : ${nCnt} records read");
@@ -528,7 +529,7 @@ sub connectDB {
 
     writeLog($TXT_SEVER_INF, "connecting DB ...");
     my $sDataSource = "dbi:Oracle://Thane:1521/ERM_A";
-    my $sDbUser = "cfms"; 
+    my $sDbUser = "cfms";
     my $sDbPwd = "Hpfms8365";
 
     until ( $goDBHandle = DBI->connect($sDataSource, $sDbUser, $sDbPwd, {PrintError => 0, RaiseError => 0}) ) {
@@ -718,6 +719,8 @@ sub parseInputData {
             'PRO_MAIN'          => $raInputFld->[26],
             'MOB_ACTIVE_DT'     => $raInputFld->[27],
             'ASC_NUMBER'        => $raInputFld->[28],
+#           'CHG_TYPE'          => $raInputFld->[29],
+            'CONTACT_NUM'       => $raInputFld->[30],
             'PRETTY_FLAG'       => _NO,
             'PATTERN_FLAG'      => $gnPatMatch,
             'DEALER_COUNT'      => 0,
@@ -771,6 +774,7 @@ sub wrtOutputFile {
     '|', $rhFields->{'DEALER_COUNT'},
     '|', $rhFields->{'ASC_NUMBER'},
     '|', $rhFields->{'ERM_CATEGORY'},
+    '|', $rhFields->{'CONTACT_NUM'},
     "\n" );
     $glWrtRecFileCnt += 1;
     my $x = getMapping(\%ghMapLovSubCat, $rhFields->{'CA_SUB_CAT'});
@@ -824,12 +828,12 @@ sub getTopXdealer {
     # get top dealer using unix command by selecting dealer code field which is column 19
     my $nDealerCodeCol = 19;
     my $nIsAISShopCol = 16;
-    
+
     my $temp_file = "${gszIniTmpDir}/.TopXDealer.txt";
     unlink($temp_file);
     my $szUxCmd = sprintf("gawk -F \"|\" '{ if ( \$%d != \"\" && \$%d != \"Y\" && \$%d != \"y\" ) print \$%d }' %s/%s | sort | uniq -c | sort -k 1nr,1 > %s", $nDealerCodeCol, $nIsAISShopCol, $nIsAISShopCol, $nDealerCodeCol, $szInpDir, $szInpFileName, $temp_file);
     system($szUxCmd);
-    
+
 #printf ("$szUxCmd\n");
 
     # If backup top dealer is set, open file for writing.
@@ -1180,3 +1184,5 @@ writeLogExit("");
 # 27  | Promo Name       |
 # 28  | Register Date    |
 # 29  | ASC Number       |
+# 30  | Charge Type      |
+# 31  | Contact Number   |
